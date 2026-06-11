@@ -1,3 +1,6 @@
+import cv2
+import numpy as np
+
 class PlateRecognizer:
     def __init__(self, template_dataset=None):
         a = 0

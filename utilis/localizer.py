@@ -1,4 +1,6 @@
-# localizer.py
+import cv2
+import numpy as np
+
 class PlateLocalizer:
     def __init__(self):
         a = 0
