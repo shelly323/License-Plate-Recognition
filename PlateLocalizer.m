@@ -14,29 +14,20 @@ classdef PlateLocalizer
         end
 
         function [img_clap, plate_location] = localizer(obj, img)
-            %% 1. 影像預處理與影像增強
-            gray_img = rgb2gray(img); %
-            
-            % 關鍵優化：加入自適應直方圖均衡化，大幅提升夜間(圖4)與反光(圖2)的對比度
+            gray_img = rgb2gray(img); 
             enhanced_img = adapthisteq(gray_img); 
     
-            %% 2. 邊緣偵測與形態學優化（融合 main.m 的優點）
             % 使用 Sobel 算子偵測垂直邊緣
             edge_img = edge(enhanced_img, 'sobel', 'vertical'); 
-            
-            % 創建結構元素
             se = strel('rectangle', obj.StructureSize);
             
-            % 步驟 A：進行閉合運算，將車牌字元的垂直邊緣融合成一整個區塊
             closed_img = imclose(edge_img, se);
             
-            % 步驟 B：關鍵優化！填滿內部空洞。這能讓車牌變成一個實心的完美長方形（main.m 成功的核心）
             filled_img = imfill(closed_img, 'holes');
             
             % 步驟 C：使用開運算去除周圍獨立的毛邊與微小雜訊，這比單純的侵蝕更溫和
             cleaned_img = imopen(filled_img, strel('rectangle', [3, 3]));
             
-            %% 3. 視覺化中間步驟（更新為優化後的變數）
             figure('Name', '車牌影像處理中間步驟', 'NumberTitle', 'off');
             subplot(2, 3, 1); imshow(gray_img); title('1. 原始灰階');
             subplot(2, 3, 2); imshow(enhanced_img); title('2. 對比度增強');
@@ -45,7 +36,6 @@ classdef PlateLocalizer
             subplot(2, 3, 5); imshow(filled_img); title('5. 孔洞填滿');
             subplot(2, 3, 6); imshow(cleaned_img); title('6. 開運算去雜訊');
     
-            %% 4. 連通元件特徵提取與評分機制
             stats = regionprops(cleaned_img, 'Area', 'BoundingBox');
             
             best_score = -1;
@@ -62,6 +52,21 @@ classdef PlateLocalizer
                 if (area >= obj.MinPlateArea) && (area <= obj.MaxPlateArea) && ...
                    (ratio >= obj.MinRatio) && (ratio <= obj.MaxRatio)
                     
+                    row_start = max(1, floor(box(2)));
+                    row_end = min(size(enhanced_img, 1), ceil(box(2) + box(4)));
+                    col_start = max(1, floor(box(1)));
+                    col_end = min(size(enhanced_img, 2), ceil(box(1) + box(3)));
+                    
+                    local_gray = enhanced_img(row_start:row_end, col_start:col_end);
+                    
+                    % 2. 對這個局部區域單獨做垂直邊緣偵測（避免受到整張圖全域閾值的干擾）
+                    local_edge = edge(local_gray, 'sobel', 'vertical');
+                    
+                    % 3. 計算邊緣密度：白色像素總數 / 區域總像素點
+                    edge_pixels = sum(local_edge(:)); % 統計矩陣中為 1 (白) 的點有幾個
+                    total_pixels = numel(local_edge); % 該區域總共有幾個像素點
+                    edge_density = edge_pixels / total_pixels;
+
                     score = 0;
                     
                     % 【特徵 A】車牌寬度評分（移除 continue 地雷，改為純加分制）
@@ -84,18 +89,27 @@ classdef PlateLocalizer
                     % 【特徵 C】Y 軸垂直位置評分（放寬標準，貼近中央的給予獎勵分）
                     img_height = size(img, 1);
                     if (box(2) > img_height * 0.2) && (box(2) < img_height * 0.8) 
-                        score = score + 20; 
+                       score = score + 20; 
                     end
                     
+                    if (edge_density >= 0.15) && (edge_density <= 0.38)
+                        score = score + 50; % 邊緣密度非常符合車牌特徵，給予高分獎勵！
+                    elseif (edge_density < 0.08)
+                        % 密度太低：極有可能是商標貼紙（如運通貼紙的大塊純色背景）或板金反光
+                        score = score - 40; % 扣大分，直接排除
+                    else
+                        score = score + 50; % 其他適中範圍給予基本分
+                    end
+
                     % 3. 挑選評分最高的候選區塊
                     if score > best_score
                         best_score = score;
                         plate_location = box;
                     end
+
                 end
             end
 
-            %% 5. 影像裁切與安全邊際輸出
             if ~isempty(plate_location)
                 % 稍微擴大裁切邊界（上下左右多留 4 像素），避免字元邊緣被切到，利於後續 OCR 辨識
                 pad = 4;
