@@ -1,0 +1,94 @@
+classdef PlateLocalizer
+    % 輸出切好的車牌圖片、車牌在原圖中的原始座標(左上角的)[x, y, width, height]
+    properties
+        % 這裡放「資料 / 變數 / 參數」，代表這個類別知道什麼（State）
+        structure = strel('rectangle', [2, 20]);
+        MinPlateArea = 1600;       % 條件一：車牌區域至少1600像素 [cite: 106]
+        MinRatio = 1.5;            % 條件二：長寬比範圍下限 [cite: 108]
+        MaxRatio = 5.0;            % 條件二：長寬比範圍上限 [cite: 108]
+    end
+    
+    methods 
+        % 這裡放「函數 / 功能 / 動作」，代表這個類別能做什麼（Behavior）
+        function obj = PlateLocalizer()
+        end
+
+        function [img_clap, plate_location] = localizer(obj, img)
+        
+            gray_img = rgb2gray(img); % [cite: 42]
+    
+            [~, threshold] = edge(gray_img, 'Prewitt', 'vertical'); % [cite: 53]
+            edge_img = edge(gray_img, 'Prewitt', 0.35 * threshold, 'vertical');
+            
+            binary_img = imbinarize(gray_img, graythresh(gray_img));
+            combined_binary = binary_img & edge_img;
+            
+            % 修正順序：先膨脹，字元才會聚合成大區塊 [cite: 70]
+            dilated = imdilate(combined_binary, obj.structure);
+
+            % 聚合成大區塊後，再做中值濾波除雜訊，車牌就不會被抹平 [cite: 62]
+            smooth = medfilt2(dilated, [3 3]);
+            smooth = medfilt2(smooth, [3 3]);
+    
+            eroded = imerode(smooth, obj.structure); % [cite: 70]
+            open_img = imopen(eroded, obj.structure);
+            
+            % 修正後的畫圖順序與對應變數
+            figure;
+            subplot(2, 3, 1); imshow(edge_img); title('after prewitt');
+            subplot(2, 3, 2); imshow(combined_binary); title('after combined');
+            subplot(2, 3, 3); imshow(dilated); title('after dilated');
+            subplot(2, 3, 4); imshow(smooth); title('after median filter');
+            subplot(2, 3, 5); imshow(eroded); title('after eroded');
+            subplot(2, 3, 6); imshow(open_img); title('after open');
+    
+            stats = regionprops(open_img, 'Area', 'BoundingBox');
+            
+            best_score = -1;
+            plate_location = [];
+            
+            for i = 1:length(stats)
+                area = stats(i).Area;
+                box = stats(i).BoundingBox; % [x, y, w, h]
+                w = box(3);
+                h = box(4);
+                ratio = w / h;
+                
+                % 1. 基本門檻過濾
+                if (area >= obj.MinPlateArea) && (ratio >= obj.MinRatio) && (ratio <= obj.MaxRatio)
+                    
+                    % 2. 開始計算這塊候選區的「車牌相似度分數」
+                    score = 0;
+                    
+                    % 【特徵 A】真正的車牌尺寸不會過於巨大
+                    if (w >= 70) && (w <= 160)
+                        score = score + 50; 
+                    end
+                    
+                    % 【特徵 B】台灣車牌常見長寬比約在 2.2 ~ 4.2 之間
+                    if (ratio >= 2.2) && (ratio <= 4.2)
+                        score = score + 30; 
+                    end
+                    
+                    % 【特徵 C】位置比對（放寬上限防禦大車頭）
+                    if (box(2) > 130) && (box(2) < 360) 
+                        score = score + 20; 
+                    end
+                    
+                    % 3. 挑選最高分的物件作為車牌
+                    if score > best_score
+                        best_score = score;
+                        plate_location = box;
+                    end
+                end
+            end
+
+            % === 修正後的影像裁切輸出區塊 ===
+            if ~isempty(plate_location)
+                img_clap = imcrop(img, plate_location); 
+            else
+                img_clap = [];
+            end
+        end
+    end
+end
