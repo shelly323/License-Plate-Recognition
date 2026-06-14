@@ -12,8 +12,15 @@ if img_num > 0
             fprintf('正在處理 [%d/%d]: %s\n',j,strcat(file_path,image_name)); 
             
             %車牌偵測!!!!!!!!!!!!!!!
-            [img_clap, plate_location] = plateDetector.localizer(car_image);
+            [clap, location] = plateDetector.localizer(car_image);
+
+
+            fid = fopen('411285036.txt', 'wt');
+            % fprint(fid, image_name,'\n',) %不用.jpg   等施!!!!!!!!!!!!!!!
+            fclose(fid); 
         end
 else
     fprintf('在 %s 找不到任何 .jpg 檔案。\n', file_path);
 end
+
+
