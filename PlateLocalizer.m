@@ -123,6 +123,7 @@ classdef PlateLocalizer
                 
                 crop_rect = [x_min, y_min, x_max - x_min, y_max - y_min];
                 img_clap = imcrop(img, crop_rect); 
+                plate_location = crop_rect; % 更新 location 為裁切後的區域座標
             else
                 img_clap = [];
                 warning('警告：在此影像中未偵測到任何符合車牌特徵的區域！');
