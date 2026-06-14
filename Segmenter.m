@@ -1,11 +1,112 @@
 classdef Segmenter
-    % 輸出偵測到的所有bboxes[x, y, width, height]，二維陣列
     properties
-        % 這裡放「資料 / 變數 / 參數」，代表這個類別知道什麼（State）
-    
+        % 這裡放「參數」，代表這個類別知道的狀態與過濾條件
+        % 將原本寫死的數值變成屬性，方便外部動態調整
+        NoiseAreaThreshold = 140; % bwareaopen 去除雜訊的門檻值
+        MinCharArea = 100;        % 字元最小面積
+        MaxCharArea = 5000;       % 字元最大面積
+        MinAspectRatio = 1.2;     % 字元最小長寬比 (高/寬)
+        MaxAspectRatio = 4.0;     % 字元最大長寬比 (高/寬)
     end
+    
     methods
-        % 這裡放「函數 / 功能 / 動作」，代表這個類別能做什麼（Behavior）
+        % 類別的建構子 (Constructor)
+        function obj = Segmenter()
+            % 建立物件時執行，目前使用預設屬性即可
+        end
         
+        % 核心切割功能
+        function final_bboxes = segment(obj, clap, location)
+            % 輸入:
+            %   clap: PlateLocalizer 切割下來的車牌影像 (RGB 或灰階皆可)
+            %   location: 車牌在原始大圖上的座標 [x_min, y_min, width, height]
+            % 輸出:
+            %   final_bboxes: 所有有效字元在「原圖」上的座標 [x, y, w, h]，N x 4 二維陣列
+            
+            % 1. 確保影像為灰階
+            if size(clap, 3) == 3
+                gray_img = rgb2gray(clap);
+            else
+                gray_img = clap;
+            end
+            
+            % 2. 二值化 (Otsu's method) 並反轉成白字黑底
+            level = graythresh(gray_img);
+            bw = imbinarize(gray_img, level);
+            bw = ~bw; 
+            figure, imshow(bw)
+            
+            % 3. 消除細小雜訊
+            bw = bwareaopen(bw, obj.NoiseAreaThreshold);
+            figure, imshow(bw)
+
+            
+            % 4. 取得連通物件特徵
+            cc = bwconncomp(bw);
+            stats = regionprops(cc, 'BoundingBox', 'Area');
+            
+            valid_bboxes = []; 
+            
+            % 5. 迴圈過濾特徵
+            for i = 1:length(stats)
+                bbox = stats(i).BoundingBox; % 局部座標 [x_local, y_local, width, height]
+                area = stats(i).Area;
+                
+                w = bbox(3);
+                h = bbox(4);
+                aspect_ratio = h / w;
+                
+                % 利用物件自身的 properties 進行條件判斷
+                if (area > obj.MinCharArea) && (area < obj.MaxCharArea) && ...
+                   (aspect_ratio > obj.MinAspectRatio) && (aspect_ratio < obj.MaxAspectRatio)
+                    
+                    % --- 關鍵步驟：座標回推至原圖 ---
+                    % bbox(1) 與 bbox(2) 是在 clap 上的局部 x, y
+                    % location(1) 與 location(2) 是 clap 在原圖上的 x, y
+                    % 兩者相加並減 1 (因為 MATLAB 座標從 1 開始) 即可還原回絕對座標
+                    global_x = bbox(1) + location(1) - 1;
+                    global_y = bbox(2) + location(2) - 1;
+                    
+                    global_bbox = [global_x, global_y, w, h];
+                    valid_bboxes = [valid_bboxes; global_bbox];
+                end
+            end 
+            
+            % 6. 由左至右排序並格式化
+            if ~isempty(valid_bboxes)
+                % 根據 x 座標 (第一欄) 進行排序，確保字元順序正確
+                sorted_bboxes = sortrows(valid_bboxes, 1);
+                % 像素座標必須為整數
+                final_bboxes = sorted_bboxes;
+            else
+                final_bboxes = []; % 沒找到東西時回傳空陣列防呆
+            end
+            
+            
+            % ==================================================
+            % 新增的程式碼：直接在 class 內部畫出局部圖 (clap) 的框
+            % ==================================================
+            % if ~isempty(final_bboxes)
+            %     figure('Name', 'Segmenter 內部檢視');
+            %     imshow(clap); % 直接使用傳進來的局部影像
+            %     title('Segmenter 內部切割結果 (局部座標)');
+            %     hold on;
+                
+            %     for i = 1:size(final_bboxes, 1)
+            %         % 因為 final_bboxes 已經是原圖座標，要畫在 clap 上必須減回去
+            %         loc_x = final_bboxes(i, 1) - location(1) + 1;
+            %         loc_y = final_bboxes(i, 2) - location(2) + 1;
+            %         loc_w = final_bboxes(i, 3);
+            %         loc_h = final_bboxes(i, 4);
+                    
+            %         % 畫上綠色的 Bounding Box 與字元順序編號
+            %         rectangle('Position', [loc_x, loc_y, loc_w, loc_h], 'EdgeColor', 'g', 'LineWidth', 2);
+            %         text(loc_x, loc_y - 8, num2str(i), 'Color', 'g', 'FontSize', 12, 'FontWeight', 'bold');
+            %     end
+            %     hold off;
+            % end
+            % ==================================================
+            
+        end
     end
 end
