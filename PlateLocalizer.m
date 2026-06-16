@@ -7,33 +7,30 @@ classdef PlateLocalizer
     
     properties
         % --- 基礎幾何與形態學參數 ---
-        StructureSize = [5, 20];   % 適合將字元水平連通的矩形構造元素大小
-        MinPlateArea = 1000;       % 面積下限，適應遠景小車牌
-        MaxPlateArea = 60000;      % 面積上限，避免抓到整個保險桿或車頭
-        MinRatio = 2.0;            % 台灣車牌長寬比下限
-        MaxRatio = 4.5;            % 台灣車牌長寬比上限
+        StructureSize = [5, 20];   
+        MinPlateArea = 1000;       
+        MaxPlateArea = 60000;      
+        % 【關鍵修改 1】：大幅放寬長寬比下限，以容忍「傾斜/側拍」導致的 BoundingBox 變形
+        MinRatio = 1.2;            % 從 2.0 降至 1.2
+        MaxRatio = 5.0;            % 微調上限
     end
     
     methods 
         function obj = PlateLocalizer()
-            % 建構子 (可在此擴充初始化設定)
         end
 
         function [img_clap, plate_location] = localizer(obj, img, print_img)
-            % 【修正 1】：檢查參數數量，若未傳入 print_img，預設為 false (不顯示)
             if nargin < 3
                 print_img = false;
             end
             
             %% 1. 影像預處理與對比度增強
-            % 【修正 2】：防呆機制，檢查是否已為灰階影像
             if size(img, 3) == 3
                 gray_img = rgb2gray(img); 
             else
                 gray_img = img;
             end
             
-            % 使用自適應直方圖均衡化 (CLAHE)：大幅提升夜間與反光處的局部對比度
             enhanced_img = adapthisteq(gray_img); 
     
             %% 2. 邊緣偵測與形態學連通
@@ -46,7 +43,7 @@ classdef PlateLocalizer
             
             cleaned_img = imopen(filled_img, strel('rectangle', [3, 3]));
             
-            %% 3. 中間步驟視覺化 (協助偵錯與參數微調)
+            %% 3. 中間步驟視覺化
             if (print_img)
                 figure('Name', '車牌影像處理中間步驟', 'NumberTitle', 'off');
                 subplot(2, 3, 1); imshow(gray_img); title('1. 原始灰階');
@@ -70,11 +67,10 @@ classdef PlateLocalizer
                 h = box(4);
                 ratio = w / h;
                 
-                % 第一道防線：基礎幾何門檻過濾
+                % 第一道防線：放寬後的基礎幾何門檻過濾
                 if (area >= obj.MinPlateArea) && (area <= obj.MaxPlateArea) && ...
                    (ratio >= obj.MinRatio) && (ratio <= obj.MaxRatio)
                     
-                    % 取得目前候選區塊的局部座標 (確保為整數索引)
                     row_start = max(1, floor(box(2)));
                     row_end = min(size(enhanced_img, 1), ceil(box(2) + box(4)));
                     col_start = max(1, floor(box(1)));
@@ -111,7 +107,7 @@ classdef PlateLocalizer
                     end
                     
                     % ---------------------------------------------------------
-                    % 【特徵 D】邊緣密度分析 (防禦純色貼紙與反光)
+                    % 【特徵 D】邊緣密度分析
                     % ---------------------------------------------------------
                     local_gray = enhanced_img(row_start:row_end, col_start:col_end);
                     local_edge = edge(local_gray, 'sobel', 'vertical');
@@ -126,9 +122,8 @@ classdef PlateLocalizer
                     end
 
                     % ---------------------------------------------------------
-                    % 【特徵 E】雙極性文字連通元件檢查 (防禦貼紙 + 支援各色車牌)
+                    % 【特徵 E】雙極性文字連通元件檢查
                     % ---------------------------------------------------------
-                    % 【修正 3】：增加 2 像素的安全 Padding，避免 imclearborder 把貼齊邊緣的正確字元刪掉
                     pad_cc = 2;
                     row_start_cc = max(1, floor(box(2)) - pad_cc);
                     row_end_cc = min(size(gray_img, 1), ceil(box(2) + box(4)) + pad_cc);
@@ -153,7 +148,9 @@ classdef PlateLocalizer
                         for k = 1:length(char_stats)
                             char_h = char_stats(k).BoundingBox(4);
                             char_area = char_stats(k).Area;
-                            if (char_h > local_h * 0.4) && (char_h < local_h * 0.9) && (char_area > 50)
+                            % 【關鍵修改 2】：將高度比例從 0.4 降至 0.3，面積限制從 50 降至 30
+                            % 用以包容傾斜導致的包圍盒高度膨脹與字元變形
+                            if (char_h > local_h * 0.3) && (char_h < local_h * 0.95) && (char_area > 30)
                                 count = count + 1;
                             end
                         end
