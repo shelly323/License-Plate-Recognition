@@ -29,22 +29,63 @@ classdef Segmenter
             else
                 gray_img = clap;
             end
-            
+            figure, imshow(gray_img); % 顯示灰階圖，方便調整參數
+
             % 2. 二值化 (Otsu's method) 並反轉成白字黑底
             level = graythresh(gray_img);
             bw = imbinarize(gray_img, level);
             bw = ~bw; 
-            figure, imshow(bw)
-            
+            figure, imshow(bw); % 顯示二值化結果，方便調整參數
+
+            % bw = imopen(bw, strel('rectangle', [3, 3])); % 開運算去除小毛邊
+            % figure, imshow(bw); % 顯示開運算結果，方便調
+
             % 3. 消除細小雜訊
             bw = bwareaopen(bw, obj.NoiseAreaThreshold);
-            figure, imshow(bw)
+            figure, imshow(bw); % 顯示去除雜訊後的結果，方便調整 NoiseAreaThreshold
 
-            
             % 4. 取得連通物件特徵
             cc = bwconncomp(bw);
             stats = regionprops(cc, 'BoundingBox', 'Area');
             
+            % valid_bboxes = []; 
+
+            %  % 5. 迴圈過濾特徵
+            % for i = 1:length(stats)
+            %     bbox = stats(i).BoundingBox; % 局部座標 [x_local, y_local, width, height]
+            %     area = stats(i).Area;
+                
+            %     w = bbox(3);
+            %     h = bbox(4);
+            %     aspect_ratio = h / w;
+                
+            %     % 利用物件自身的 properties 進行條件判斷
+            %     if (area > obj.MinCharArea) && (area < obj.MaxCharArea) && ...
+            %        (aspect_ratio > obj.MinAspectRatio) && (aspect_ratio < obj.MaxAspectRatio)
+                    
+            %         % --- 關鍵步驟：座標回推至原圖 ---
+            %         % bbox(1) 與 bbox(2) 是在 clap 上的局部 x, y
+            %         % location(1) 與 location(2) 是 clap 在原圖上的 x, y
+            %         % 兩者相加並減 1 (因為 MATLAB 座標從 1 開始) 即可還原回絕對座標
+            %         global_x = bbox(1) + location(1) - 1;
+            %         global_y = bbox(2) + location(2) - 1;
+                    
+            %         global_bbox = [global_x, global_y, w, h];
+            %         valid_bboxes = [valid_bboxes; global_bbox];
+            %     end
+            
+            % ------------------新方法--------------------
+            img_height = size(bw, 1);
+
+            % 收集所有物件的高度
+            all_heights = zeros(length(stats), 1);
+            for i = 1:length(stats)
+                all_heights(i) = stats(i).BoundingBox(4);
+            end
+
+            % 排除極端值（極小的雜訊或極大的邊框），找出「中位數高度」
+            median_height = median(all_heights(all_heights > img_height * 0.1));
+
             valid_bboxes = []; 
             
             % 5. 迴圈過濾特徵
@@ -56,20 +97,67 @@ classdef Segmenter
                 h = bbox(4);
                 aspect_ratio = h / w;
                 
-                % 利用物件自身的 properties 進行條件判斷
-                if (area > obj.MinCharArea) && (area < obj.MaxCharArea) && ...
-                   (aspect_ratio > obj.MinAspectRatio) && (aspect_ratio < obj.MaxAspectRatio)
-                    
-                    % --- 關鍵步驟：座標回推至原圖 ---
-                    % bbox(1) 與 bbox(2) 是在 clap 上的局部 x, y
-                    % location(1) 與 location(2) 是 clap 在原圖上的 x, y
-                    % 兩者相加並減 1 (因為 MATLAB 座標從 1 開始) 即可還原回絕對座標
+                % --- 相對特徵篩選條件 ---
+                % 1. 高度必須與「中位數高度」相近 (例如誤差在正負 20% 以內)
+                is_similar_height = (h > median_height * 0.8) && (h < median_height * 1.2);
+                
+                % 2. 長寬比落在合理範圍 (這依然可以使用，因為比例是相對的，不受解析度影響)
+                is_valid_ratio = (aspect_ratio > 1.2) && (aspect_ratio < 4.0);
+                
+                if is_similar_height 
+                    if is_valid_ratio
                     global_x = bbox(1) + location(1) - 1;
                     global_y = bbox(2) + location(2) - 1;
                     
                     global_bbox = [global_x, global_y, w, h];
                     valid_bboxes = [valid_bboxes; global_bbox];
+                    else
+                        fprintf('過濾掉一個物件: 高度=%.2f, 長寬比=%.2f\n', h, aspect_ratio);
+                    end
+                else
+                    fprintf('過濾掉一個物件: 高度=%.2f, 長寬比=%.2f\n', h, aspect_ratio);
                 end
+                % -------------------------------------------
+
+                % 利用物件自身的 properties 進行條件判斷
+                % if (area > obj.MinCharArea) && (area < obj.MaxCharArea) && ...
+                %    (aspect_ratio > obj.MinAspectRatio) && (aspect_ratio < obj.MaxAspectRatio)
+                    
+                %     % --- 關鍵步驟：座標回推至原圖 ---
+                %     % bbox(1) 與 bbox(2) 是在 clap 上的局部 x, y
+                %     % location(1) 與 location(2) 是 clap 在原圖上的 x, y
+                %     % 兩者相加並減 1 (因為 MATLAB 座標從 1 開始) 即可還原回絕對座標
+                %     global_x = bbox(1) + location(1) - 1;
+                %     global_y = bbox(2) + location(2) - 1;
+                    
+                %     global_bbox = [global_x, global_y, w, h];
+                %     valid_bboxes = [valid_bboxes; global_bbox];
+                % end
+
+                % 可以用來檢驗他抓到哪些物件，以及為什麼被過濾掉了
+                for j = 1:size(bbox, 1)
+                    rectangle('Position', bbox(j, :), 'EdgeColor', 'r', 'LineWidth', 2);
+                    % 在框的上方標示字元順序編號
+                    % text(char_bboxes(i, 1), char_bboxes(i, 2)-10, num2str(i), 'Color', 'r', 'FontSize', 12);
+                end 
+
+                % if (area > obj.MinCharArea) && (area < obj.MaxCharArea) 
+                %    if (aspect_ratio > obj.MinAspectRatio) && (aspect_ratio < obj.MaxAspectRatio)
+                %         % --- 關鍵步驟：座標回推至原圖 ---
+                %         % bbox(1) 與 bbox(2) 是在 clap 上的局部 x, y
+                %         % location(1) 與 location(2) 是 clap 在原圖上的 x, y
+                %         % 兩者相加並減 1 (因為 MATLAB 座標從 1 開始) 即可還原回絕對座標
+                %         global_x = bbox(1) + location(1) - 1;
+                %         global_y = bbox(2) + location(2) - 1;
+                    
+                %         global_bbox = [global_x, global_y, w, h];
+                %         valid_bboxes = [valid_bboxes; global_bbox];
+                %    else
+                %         fprintf('過濾掉一個物件: 面積=%.2f, 長寬比=%.2f\n', area, aspect_ratio);
+                %    end
+                % else
+                %     fprintf('過濾掉一個物件: 面積=%.2f, 長寬比=%.2f\n', area, aspect_ratio);
+                % end
             end 
             
             % 6. 由左至右排序並格式化
