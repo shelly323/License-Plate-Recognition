@@ -1,7 +1,7 @@
 plateDetector = PlateLocalizer();  %初始化
 plateSegmenter = Segmenter(); 
 
-file_path =  '.\image\sample 2026\';% 資料夾路徑
+file_path =  '.\1\';% 資料夾路徑
 img_path_list = dir(strcat(file_path,'*.jpg')); % jpg影像
 img_num = length(img_path_list); %照片數量
 
@@ -14,8 +14,8 @@ if img_num > 0
         fprintf('正在處理 [%d/%d]: %s\n',j,strcat(file_path,image_name)); 
             
         %車牌偵測!!!!!!!!!!!!!!!
-        [clap, location] = plateDetector.localizer(car_image);
-        bboxes = plateSegmenter.segment(clap, location);   %等施!!!!!!!!!!!!!!!
+        [clap, location] = plateDetector.localizer(car_image, false);
+        bboxes = plateSegmenter.segment(clap, location, false);   %等施!!!!!!!!!!!!!!!
 
         % 3. 計算這張圖片真正找到了幾個字元!!!!!!!!!!
         % size(bboxes, 1) 會回傳矩陣有幾列（也就是幾個字元框）
