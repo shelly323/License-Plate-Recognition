@@ -1,5 +1,5 @@
 p = PlateLocalizer();
 
-[clap, location] = p.localizer(imread("image\sample 2026\020.jpg"));
+[clap, location] = p.localizer(imread("1\370.jpg"), true);
 
 figure, imshow(clap)

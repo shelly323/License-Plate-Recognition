@@ -16,7 +16,7 @@ classdef Segmenter
         end
         
         % 核心切割功能
-        function final_bboxes = segment(obj, clap, location)
+        function final_bboxes = segment(obj, clap, location, print_img)
             % 輸入:
             %   clap: PlateLocalizer 切割下來的車牌影像 (RGB 或灰階皆可)
             %   location: 車牌在原始大圖上的座標 [x_min, y_min, width, height]
@@ -29,21 +29,24 @@ classdef Segmenter
             else
                 gray_img = clap;
             end
-            figure, imshow(gray_img); % 顯示灰階圖，方便調整參數
-
+            if (print_img)
+                figure, imshow(gray_img); % 顯示灰階圖，方便調整參數
+            end
             % 2. 二值化 (Otsu's method) 並反轉成白字黑底
             level = graythresh(gray_img);
             bw = imbinarize(gray_img, level);
             bw = ~bw; 
-            figure, imshow(bw); % 顯示二值化結果，方便調整參數
-
+            if (print_img)
+                figure, imshow(bw); % 顯示二值化結果，方便調整參數
+            end
             % bw = imopen(bw, strel('rectangle', [3, 3])); % 開運算去除小毛邊
             % figure, imshow(bw); % 顯示開運算結果，方便調
 
             % 3. 消除細小雜訊
             bw = bwareaopen(bw, obj.NoiseAreaThreshold);
-            figure, imshow(bw); % 顯示去除雜訊後的結果，方便調整 NoiseAreaThreshold
-
+            if (print_img)
+                figure, imshow(bw); % 顯示去除雜訊後的結果，方便調整 NoiseAreaThreshold
+            end
             % 4. 取得連通物件特徵
             cc = bwconncomp(bw);
             stats = regionprops(cc, 'BoundingBox', 'Area');
