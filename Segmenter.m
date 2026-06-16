@@ -29,20 +29,70 @@ classdef Segmenter
             else
                 gray_img = clap;
             end
-            figure, imshow(gray_img); % 顯示灰階圖，方便調整參數
+            % figure, imshow(gray_img); % 顯示灰階圖，方便調整參數
 
             % 2. 二值化 (Otsu's method) 並反轉成白字黑底
-            level = graythresh(gray_img);
-            bw = imbinarize(gray_img, level);
+            % level = graythresh(gray_img);
+            % bw = imbinarize(gray_img, level);
+
+            % 2. 二值化（adaptive method）
+            bw = imbinarize(gray_img, 'adaptive', 'ForegroundPolarity', 'dark', 'Sensitivity', 0.5);
             bw = ~bw; 
             figure, imshow(bw); % 顯示二值化結果，方便調整參數
 
             % bw = imopen(bw, strel('rectangle', [3, 3])); % 開運算去除小毛邊
             % figure, imshow(bw); % 顯示開運算結果，方便調
+            % 假設你的原始二值化圖存在變數 bw 中
 
             % 3. 消除細小雜訊
-            bw = bwareaopen(bw, obj.NoiseAreaThreshold);
+            % bw = bwareaopen(bw, obj.NoiseAreaThreshold);
             figure, imshow(bw); % 顯示去除雜訊後的結果，方便調整 NoiseAreaThreshold
+
+            % 假設你已經做完基礎的去雜訊： bw = bwareaopen(bw, obj.NoiseAreaThreshold);
+
+            % 1. 先做一次初步的連通物件分析
+            cc_temp = bwconncomp(bw);
+            stats_temp = regionprops(cc_temp, 'BoundingBox');
+
+            % 2. 巡視所有初步找到的框
+            for i = 1:length(stats_temp)
+                bbox = stats_temp(i).BoundingBox;
+                x_start = round(bbox(1));
+                y_start = round(bbox(2));
+                w = round(bbox(3));
+                h = round(bbox(4));
+                
+                % --- 智能判斷：這個框是不是太胖了？ ---
+                % 正常字元 w < h。如果 w > h * 0.85，極高機率是沾黏！
+                if w > h * 0.85
+                    % fprintf('發現一個可能沾黏的框: [x=%d, y=%d, w=%d, h=%d]\n', x_start, y_start, w, h);
+                    % 把它單獨抓出來 (局部 ROI)
+                    roi = bw(y_start : y_start+h-1, x_start : x_start+w-1);
+                    
+                    % 計算這個框內的垂直投影 (由上往下加總白點)
+                    v_proj = sum(roi, 1);
+                    
+                    % 尋找「最少白點」的直行 (也就是沾黏最薄弱的地方)
+                    % 為了避免切到字元的左右邊緣，我們只在框的「中間 60%」區域尋找斷點
+                    search_start = max(1, round(w * 0.2));
+                    search_end = min(w, round(w * 0.8));
+                    
+                    [~, min_idx] = min(v_proj(search_start : search_end));
+                    
+                    % 計算出斷點在原始影像上的 X 座標
+                    cut_x_local = search_start + min_idx - 1;
+                    global_cut_x = x_start + cut_x_local - 1;
+                    
+                    % --- 執行外科手術切割 ---
+                    % 在原始二值化圖上，沿著這個斷點畫一條粗度為 2~3 像素的「黑色垂直線」
+                    % 這樣就能強制把黏在一起的字元一分為二！
+                    cut_thickness = 1; % 往左往右擴張的像素，總寬 3 像素
+                    safe_left = max(1, global_cut_x - cut_thickness);
+                    safe_right = min(size(bw, 2), global_cut_x + cut_thickness);
+                    
+                    bw(y_start : y_start+h-1, safe_left : safe_right) = 0; 
+                end
+            end
 
             % 4. 取得連通物件特徵
             cc = bwconncomp(bw);
@@ -102,7 +152,8 @@ classdef Segmenter
                 is_similar_height = (h > median_height * 0.8) && (h < median_height * 1.2);
                 
                 % 2. 長寬比落在合理範圍 (這依然可以使用，因為比例是相對的，不受解析度影響)
-                is_valid_ratio = (aspect_ratio > 1.2) && (aspect_ratio < 4.0);
+                % is_valid_ratio = (aspect_ratio > 1.2) && (aspect_ratio < 4.0);
+                is_valid_ratio = (aspect_ratio > 1.2);
                 
                 if is_similar_height 
                     if is_valid_ratio
@@ -112,10 +163,10 @@ classdef Segmenter
                     global_bbox = [global_x, global_y, w, h];
                     valid_bboxes = [valid_bboxes; global_bbox];
                     else
-                        fprintf('過濾掉一個物件: 高度=%.2f, 長寬比=%.2f\n', h, aspect_ratio);
+                        % fprintf('過濾掉一個物件: 高度=%.2f, 長寬比=%.2f\n', h, aspect_ratio);
                     end
                 else
-                    fprintf('過濾掉一個物件: 高度=%.2f, 長寬比=%.2f\n', h, aspect_ratio);
+                    % fprintf('過濾掉一個物件: 高度=%.2f, 長寬比=%.2f\n', h, aspect_ratio);
                 end
                 % -------------------------------------------
 
