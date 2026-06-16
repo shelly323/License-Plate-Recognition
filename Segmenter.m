@@ -33,14 +33,18 @@ classdef Segmenter
                 figure, imshow(gray_img); % 顯示灰階圖，方便調整參數
             end
             % 2. 二值化 (Otsu's method) 並反轉成白字黑底
-            level = graythresh(gray_img);
-            bw = imbinarize(gray_img, level);
+            % level = graythresh(gray_img);
+            % bw = imbinarize(gray_img, level);
+
+            % 2. 二值化（adaptive method）
+            bw = imbinarize(gray_img, 'adaptive', 'ForegroundPolarity', 'dark', 'Sensitivity', 0.5);
             bw = ~bw; 
             if (print_img)
                 figure, imshow(bw); % 顯示二值化結果，方便調整參數
             end
             % bw = imopen(bw, strel('rectangle', [3, 3])); % 開運算去除小毛邊
             % figure, imshow(bw); % 顯示開運算結果，方便調
+            % 假設你的原始二值化圖存在變數 bw 中
 
             % 3. 消除細小雜訊
             bw = bwareaopen(bw, obj.NoiseAreaThreshold);
@@ -105,7 +109,8 @@ classdef Segmenter
                 is_similar_height = (h > median_height * 0.8) && (h < median_height * 1.2);
                 
                 % 2. 長寬比落在合理範圍 (這依然可以使用，因為比例是相對的，不受解析度影響)
-                is_valid_ratio = (aspect_ratio > 1.2) && (aspect_ratio < 4.0);
+                % is_valid_ratio = (aspect_ratio > 1.2) && (aspect_ratio < 4.0);
+                is_valid_ratio = (aspect_ratio > 1.2);
                 
                 if is_similar_height 
                     if is_valid_ratio
@@ -115,10 +120,10 @@ classdef Segmenter
                     global_bbox = [global_x, global_y, w, h];
                     valid_bboxes = [valid_bboxes; global_bbox];
                     else
-                        fprintf('過濾掉一個物件: 高度=%.2f, 長寬比=%.2f\n', h, aspect_ratio);
+                        % fprintf('過濾掉一個物件: 高度=%.2f, 長寬比=%.2f\n', h, aspect_ratio);
                     end
                 else
-                    fprintf('過濾掉一個物件: 高度=%.2f, 長寬比=%.2f\n', h, aspect_ratio);
+                    % fprintf('過濾掉一個物件: 高度=%.2f, 長寬比=%.2f\n', h, aspect_ratio);
                 end
                 % -------------------------------------------
 
