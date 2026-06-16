@@ -1,7 +1,7 @@
 plateDetector = PlateLocalizer();  %初始化
 plateSegmenter = Segmenter(); 
 
-file_path =  '.\1\';% 資料夾路徑
+file_path =  '.\10\';% 資料夾路徑
 img_path_list = dir(strcat(file_path,'*.jpg')); % jpg影像
 img_num = length(img_path_list); %照片數量
 
